@@ -17,6 +17,13 @@ jobs:
       uses: actions/checkout@v3
       with:
         fetch-depth: 0 
+        
+    - name: Checkout Secret Repo
+      uses: actions/checkout@master
+      with:
+        repository: NeVeSpl/SecretRepository
+        token: ${{ secrets.SR_PAT }}
+        path: ./binaries/revit/2024/
 
     - name: Setup MSBuild.exe
       uses: microsoft/setup-msbuild@v1.1
@@ -41,6 +48,11 @@ jobs:
       working-directory: sources/
       run: |
           msbuild /p:Configuration=R2023
+
+    - name: Build Project for R2024     
+      working-directory: sources/
+      run: |
+          msbuild /p:Configuration=R2024
           
     - name: Create Code Signing Certificate
       run: |
