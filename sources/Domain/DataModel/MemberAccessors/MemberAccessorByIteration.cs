@@ -3,51 +3,54 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Autodesk.Revit.DB;
+using RevitDBExplorer.Domain.DataModel.ValueContainers.Base;
 
 // (c) Revit Database Explorer https://github.com/NeVeSpl/RevitDBExplorer/blob/main/license.md
 
 namespace RevitDBExplorer.Domain.DataModel.MemberAccessors
 {
-    internal class MemberAccessorByIteration : MemberAccessorTyped<object>
+    internal sealed class MemberAccessorByIteration<TSnoopedObjectType, TReturnType> : MemberAccessorTyped<TSnoopedObjectType>
     {
-        private readonly MethodInfo getMethod;
-
+        private readonly string getMethodReturnTypeName;
+        private readonly ParameterInfo getMethodParameter;
+        private readonly Func<TSnoopedObjectType, object, TReturnType> func;
+        
 
         public MemberAccessorByIteration(MethodInfo getMethod)
         {
-            this.getMethod = getMethod;
+            getMethodReturnTypeName = getMethod.ReturnType.GetCSharpName();
+            getMethodParameter = getMethod.GetParameters().First();
+
+            var factory = new GenericFactory2<TSnoopedObjectType, TReturnType>();
+            func = factory.CreateLambdaInternalWithOneParam<object>(getMethod);
         }
 
 
-        public override ReadResult Read(SnoopableContext context, object @object)
+        public override ReadResult Read(SnoopableContext context, TSnoopedObjectType @object)
         {
-            var typeName = getMethod.ReturnType.GetCSharpName();
-            return new ReadResult($"[{typeName}]", nameof(MemberAccessorByIteration), true);
+            var count = CountValues(context, getMethodParameter.ParameterType);
+            return new ReadResult(Labeler.GetLabelForCollection(getMethodReturnTypeName, count), "[ByIteration]", true);
         }
-        public override IEnumerable<SnoopableObject> Snoop(SnoopableContext context, object @object)
+        public override IEnumerable<SnoopableObject> Snoop(SnoopableContext context, TSnoopedObjectType @object, IValueContainer state)
         {            
-            var result = new List<SnoopableObject>();
-            var parameter = getMethod.GetParameters().First();
+            var result = new List<SnoopableObject>();           
 
-            var arg = new object[1];
-            foreach (var input in StreamValues(context, parameter.ParameterType))
-            {    
-                arg[0] = input;     
+            foreach (var input in StreamValues(context, getMethodParameter.ParameterType))
+            {                   
                 object resultOfInvocation = null;
                 try
                 {
-
-                    resultOfInvocation = getMethod.Invoke(@object, arg);                    
+                    resultOfInvocation = func(@object, input);          
                 }
                 catch (Exception ex)
                 {
-                    if (parameter.ParameterType == typeof(int))
+                    if (getMethodParameter.ParameterType == typeof(int))
                     {
                         break;
                     }
                     resultOfInvocation = Labeler.GetLabelForException(ex);
                 }
-                result.Add(SnoopableObject.CreateInOutPair(context.Document, input, resultOfInvocation, keyPrefix: parameter.Name + ":"));
+                result.Add(SnoopableObject.CreateInOutPair(context.Document, input, resultOfInvocation, keyPrefix: getMethodParameter.Name + ":"));
             }
 
             return result;
@@ -88,10 +91,36 @@ namespace RevitDBExplorer.Domain.DataModel.MemberAccessors
                     yield return level;
                 }
             }
-
         }
+        private int? CountValues(SnoopableContext context, Type type)
+        {
+            if (type == typeof(int))
+            {
+                return null;
+            }
+            if (type.IsEnum)
+            {
+                return Enum.GetNames(type).Length;
+            }
+            if (type == typeof(bool))
+            {
+                return 2;
+            }
+            if (type == typeof(Phase))
+            {
+                return context.Document.Phases.Size;
+            }
+            if (type == typeof(Level))
+            {
+                return null;
+            }
 
+            return null;
+        }
+    }
 
+    internal sealed class MemberAccessorByIteration
+    {
         public static Type[] HandledParameterTypes = new[] { typeof(int), typeof(bool), typeof(Enum), typeof(Phase), typeof(Level) };
     }
 }

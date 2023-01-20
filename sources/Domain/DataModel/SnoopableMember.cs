@@ -2,10 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Autodesk.Revit.DB;
 using RevitDBExplorer.Domain.DataModel.MemberAccessors;
-using RevitDBExplorer.Domain.DataModel.ValueObjects;
-using RevitDBExplorer.UIComponents.List.ValuePresenters;
+using RevitDBExplorer.Domain.DataModel.Streams.Base;
+using RevitDBExplorer.Domain.DataModel.ValueContainers.Base;
+using RevitDBExplorer.Domain.DataModel.ViewModels;
+using RevitDBExplorer.Domain.DataModel.ViewModels.Base;
 using RevitDBExplorer.WPF;
 
 // (c) Revit Database Explorer https://github.com/NeVeSpl/RevitDBExplorer/blob/main/license.md
@@ -14,55 +15,34 @@ namespace RevitDBExplorer.Domain.DataModel
 {
     internal class SnoopableMember : BaseViewModel
     {
-        public enum Kind { Property, Method, StaticMethod, Extra, AsArgument }
-
         private readonly SnoopableObject parent;
-        private readonly DeclaringType declaringType;      
-        private readonly IMemberAccessor memberAccessor;
-        private readonly Lazy<DocXml> documentation;
+        private readonly MemberDescriptor memberDescriptor;      
+        private IValueContainer state;
+        private IValueViewModel valueVM;
 
-        public DeclaringType DeclaringType => declaringType;
-        public Kind MemberKind { get; }
-        public string Name { get; }
-        public string DeclaringTypeName => declaringType.Name;
-        public int DeclaringTypeLevel => declaringType.InheritanceLevel;        
-        public bool HasAccessor => memberAccessor is not null;
-        public DocXml Documentation => documentation?.Value ?? DocXml.Empty;
 
-        public Label Label { get; private set; } = new Label("", false);
+        public DeclaringType DeclaringType => memberDescriptor.DeclaringType;
+        public string DeclaringTypeName => DeclaringType.Name;
+        public int DeclaringTypeLevel => DeclaringType.InheritanceLevel;
+        public MemberKind MemberKind => memberDescriptor.Kind;
+        public string Name => memberDescriptor.Name;               
+        public bool HasAccessor => memberDescriptor.MemberAccessor is not null;
+        public DocXml Documentation => memberDescriptor.Documentation;
+
+
+        public event Action SnoopableObjectChanged;
         public string AccessorName { get; private set; }
-        public IValuePresenter ValueViewModel { get; private set; } = new DefaultPresenterVM();
+        public IValueViewModel ValueViewModel { get; private set; } = new DefaultPresenterVM();
+
         public bool CanBeSnooped { get; private set; }        
         public bool CanBeWritten { get; private set; } = false;
-        public RelayCommand WriteCommand { get; }        
-        public event Action SnoopableObjectChanged;
+               
 
-
-        public SnoopableMember(SnoopableObject parent, Kind memberKind, string name, Type declaringType, IMemberAccessor memberAccessor, Func<DocXml> documentationFactoryMethod)
+        public SnoopableMember(SnoopableObject parent, MemberDescriptor memberDescriptor)
         {
             this.parent = parent;
-            this.MemberKind = memberKind;
-            this.Name = name;
-            if (declaringType != null)
-            {
-                this.declaringType = DeclaringType.Create(declaringType, parent?.Object?.GetType());
-            }
-            this.memberAccessor = memberAccessor;
-            if (memberAccessor == null)
-            {
-                this.declaringType = DeclaringType.NotExposed;
-            }
-            if (documentationFactoryMethod != null)
-            {
-                this.documentation = new Lazy<DocXml>(documentationFactoryMethod);
-            }
-            WriteCommand = new RelayCommand(x => Write(), x => CanBeWritten); 
-        }
-        public SnoopableMember(SnoopableObject parent, SnoopableMember source) : this(parent, source.MemberKind, source.Name, null, source.memberAccessor, null)
-        {
-            this.declaringType = source.declaringType;
-            this.documentation = source.documentation;
-        }
+            this.memberDescriptor = memberDescriptor;            
+        }   
 
         
         public void Read()
@@ -75,35 +55,47 @@ namespace RevitDBExplorer.Domain.DataModel
         {
             try
             {
-                ValueViewModel = memberAccessor.GetPresenter(context, @object);
-                var result = memberAccessor.Read(context, @object);                  
+                valueVM ??= memberDescriptor.MemberAccessor.CreatePresenter(context, @object);
+                ValueViewModel = valueVM;
+
+                if (ValueViewModel is ValueEditorVM { WriteCommand: null } editor )
+                {
+                    editor.WriteCommand = new RelayCommand(x => Write(), x => CanBeWritten);
+                }
+
+                var result = memberDescriptor.MemberAccessor.Read(context, @object, valueVM);
+                if (ValueViewModel is DefaultPresenterVM pres)
+                {
+                    pres.ValueContainer = result.State;
+                    pres.Label = result.Label;
+                }
+                state = result.State;
+              
                 AccessorName = result.AccessorName;
                 CanBeSnooped = result.CanBeSnooped;
-                Label = new Label(result.Label, false);
-                if (memberAccessor is IMemberAccessorWithWrite writer)
+                
+                if (memberDescriptor.MemberAccessor is IMemberAccessorWithWrite writer)
                 {
                     CanBeWritten = writer.CanBeWritten(parent.Context, parent.Object);
                 }
             }
             catch (Exception valueAccessException)
             {
-                ValueViewModel = new ErrorPresenterVM();
-                Label = new Label(Labeler.GetLabelForException(valueAccessException), true);
+                ValueViewModel = new ErrorPresenterVM(Labeler.GetLabelForException(valueAccessException));              
             }
-            OnPropertyChanged(nameof(ValueViewModel));
-            OnPropertyChanged(nameof(Label));            
+            OnPropertyChanged(nameof(ValueViewModel));                
             OnPropertyChanged(nameof(AccessorName));
             OnPropertyChanged(nameof(CanBeSnooped));
         }
 
-        public IEnumerable<SnoopableObject> Snooop()
+        public ResultOfSnooping Snooop()
         {
             if (isFrozen) return frozenSnooopResult;           
-            if (memberAccessor is IMemberAccessorWithSnoop snooper)
+            if (memberDescriptor.MemberAccessor is IMemberAccessorWithSnoop snooper)
             {
-                return snooper.Snoop(parent.Context, parent.Object);
+                return new(snooper.Snoop(parent.Context, parent.Object, state).ToArray()) { Title = Name };
             }
-            return Enumerable.Empty<SnoopableObject>();
+            return new();
         }
 
         public void Write()
@@ -112,25 +104,25 @@ namespace RevitDBExplorer.Domain.DataModel
         }
         private void Write(SnoopableContext context, object @object)
         {
-            if (memberAccessor is IMemberAccessorWithWrite writer)
+            if (memberDescriptor.MemberAccessor is IMemberAccessorWithWrite writer)
             {
                 ExternalExecutorExt.ExecuteInRevitContextInsideTransactionAsync((x) =>
                 {                    
-                    writer.Write(context, @object);
-                }, context.Document, $"{memberAccessor.GetType().Name}").Forget();
+                    writer.Write(context, @object, valueVM);
+                }, context.Document, $"{memberDescriptor.MemberAccessor.GetType().Name}").Forget();
                 SnoopableObjectChanged?.Invoke();
             }            
         }
 
 
         private bool isFrozen = false;
-        private IList<SnoopableObject> frozenSnooopResult;
+        private ResultOfSnooping frozenSnooopResult;
         public void Freeze()
         {            
             if (CanBeSnooped)
             {
-                frozenSnooopResult = Snooop().ToList();
-                frozenSnooopResult.ForEach(x => x.Freeze());
+                frozenSnooopResult = Snooop();
+                frozenSnooopResult.Objects.ForEach(x => x.Freeze());
             }
             isFrozen = true;
         }

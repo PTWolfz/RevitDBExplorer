@@ -2,7 +2,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using RevitDBExplorer.Domain.DataModel.Streams;
@@ -18,17 +17,20 @@ namespace RevitDBExplorer.Domain.DataModel
         private readonly List<SnoopableObject> items;   
 
         public SnoopableContext Context { get; }
-        public object Object { get; }
-        public Document Document { get; }
+        public object Object { get; }     
         public string Name { get; init; }
         public string NamePrefix { get; init; }
         public Icon NamePrefixIcon { get; init; }
         public string TypeName { get; }       
         public IEnumerable<SnoopableObject> Items => items;
         public int Index { get; init; } = -1;
-        
 
-        public SnoopableObject(Document document, object @object, IEnumerable<SnoopableObject> subObjects = null)
+
+        public SnoopableObject(Document document, object @object) : this(document, @object, null)
+        {
+
+        }
+        public SnoopableObject(Document document, object @object, IEnumerable<SnoopableObject> subObjects)
         {
             if (@object is ElementId id)
             {
@@ -39,9 +41,8 @@ namespace RevitDBExplorer.Domain.DataModel
                 }
             }            
             this.Context = new SnoopableContext() { Document = document };
-            this.Object = @object;
-            this.Document = document;            
-            this.Name = @object is not null ? Labeler.GetLabelForObject(@object, document) : "<null>";
+            this.Object = @object;               
+            this.Name = @object is not null ? Labeler.GetLabelForObject(@object, this.Context) : "<null>";
             this.TypeName = @object?.GetType().GetCSharpName();
 
             if (subObjects != null)
@@ -88,82 +89,18 @@ namespace RevitDBExplorer.Domain.DataModel
             {
                 yield break;
             }
-            foreach (var member in GetMembersFromStreams(app))
-            {
-                //if (member.HasAccessor)
-                {
-                    member.Read();                
-                    yield return member;
-                }
+            foreach (var member in CreateMembers(this))
+            {                
+                member.Read();                
+                yield return member;                
             }
         }
 
-        private static readonly SystemTypeStream SystemTypeHandler = new();
-        private IEnumerable<SnoopableMember> GetMembersFromStreams(UIApplication app)
+        private static IEnumerable<SnoopableMember> CreateMembers(SnoopableObject snoopableObject)
         {
-            var type = Object.GetType();            
-                
-            foreach (var member in SystemTypeHandler.Stream(this))
+            foreach (var descriptor in MemberStreamer.StreamDescriptors(snoopableObject.Context, snoopableObject.Object))
             {
-                yield return member;
-            }
-            if (SystemTypeHandler.ShouldEndAllStreaming())
-            {
-                yield break;
-            }            
-
-            foreach (var member in FactoryOfFactories.CreateSnoopableMembersFor(this))
-            {
-                yield return member;
-            }
-
-            var properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
-            foreach (var prop in properties)
-            {
-                if (prop.Name == "Parameter")
-                {
-                    continue;
-                }
-
-                var getMethod = prop.GetGetGetMethod();
-                if (getMethod == null)
-                {
-                    continue;
-                }
-
-                var comments = () => RevitDocumentationReader.GetPropertyComments(prop);
-                var memberAccessor = FactoryOfFactories.CreateMemberAccessor(getMethod, null);
-                var member = new SnoopableMember(this, SnoopableMember.Kind.Property, prop.Name, prop.DeclaringType, memberAccessor, comments);              
-                yield return member;
-            }
-
-            var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public);
-            foreach (var method in methods)
-            {
-                if (method.ReturnType == typeof(void) && method.Name != "GetOverridableHookParameters") continue;
-                if (method.IsSpecialName) continue;
-                if (method.DeclaringType == typeof(object)) continue;     
-                
-                if (method.Name == "Set" && Object is Parameter parameter)
-                {
-                    Type expectedParameterType = parameter.StorageType switch
-                    {
-                        StorageType.None => null,
-                        StorageType.Integer => typeof(int),
-                        StorageType.Double => typeof(double),
-                        StorageType.String => typeof(string),
-                        StorageType.ElementId => typeof(ElementId)
-                    };
-                    var parameterType =  method.GetParameters().FirstOrDefault()?.ParameterType;
-                    if (parameterType != expectedParameterType)
-                    {
-                        continue;
-                    }
-                }
-
-                var comments = () => RevitDocumentationReader.GetMethodComments(method);
-                var memberAccessor = FactoryOfFactories.CreateMemberAccessor(method, null);
-                var member = new SnoopableMember(this, SnoopableMember.Kind.Method, method.Name, method.DeclaringType, memberAccessor, comments);
+                var member = new SnoopableMember(snoopableObject, descriptor);
                 yield return member;
             }
         }

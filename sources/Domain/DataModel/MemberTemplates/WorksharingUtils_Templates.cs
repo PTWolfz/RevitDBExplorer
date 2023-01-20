@@ -2,6 +2,8 @@
 using System.Linq;
 using Autodesk.Revit.DB;
 using RevitDBExplorer.Domain.DataModel.MemberTemplates.Base;
+using RevitDBExplorer.Domain.DataModel.Streams;
+using RevitDBExplorer.Domain.DataModel.Streams.Base;
 
 // (c) Revit Database Explorer https://github.com/NeVeSpl/RevitDBExplorer/blob/main/license.md
 
@@ -16,9 +18,9 @@ namespace RevitDBExplorer.Domain.DataModel.MemberTemplates
         {
             templates = new ISnoopableMemberTemplate[]
             {
-               SnoopableMemberTemplate<Element>.Create((doc, target) => WorksharingUtils.GetCheckoutStatus(doc, target.Id), kind: SnoopableMember.Kind.StaticMethod),
-               SnoopableMemberTemplate<Element>.Create((doc, target) => WorksharingUtils.GetModelUpdatesStatus(doc, target.Id), kind: SnoopableMember.Kind.StaticMethod),
-               SnoopableMemberTemplate<Element>.Create((doc, target) => WorksharingUtils.GetWorksharingTooltipInfo(doc, target.Id), kind: SnoopableMember.Kind.StaticMethod),
+               SnoopableMemberTemplate<Element>.Create((doc, target) => WorksharingUtils.GetCheckoutStatus(doc, target.Id), kind: MemberKind.StaticMethod),
+               SnoopableMemberTemplate<Element>.Create((doc, target) => WorksharingUtils.GetModelUpdatesStatus(doc, target.Id), kind: MemberKind.StaticMethod),
+               SnoopableMemberTemplate<Element>.Create((doc, target) => WorksharingUtils.GetWorksharingTooltipInfo(doc, target.Id), kind: MemberKind.StaticMethod),
             };
         }
 

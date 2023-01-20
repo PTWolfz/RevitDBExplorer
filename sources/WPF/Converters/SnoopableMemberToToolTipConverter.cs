@@ -2,9 +2,7 @@
 using System.Globalization;
 using System.Windows.Data;
 using RevitDBExplorer.Domain.DataModel;
-using RevitDBExplorer.Domain.DataModel.ValueContainers;
-using RevitDBExplorer.Domain.DataModel.ValueContainers.Base;
-using RevitDBExplorer.UIComponents.List.ValuePresenters;
+using RevitDBExplorer.Domain.DataModel.ViewModels;
 
 namespace RevitDBExplorer.WPF.Converters
 {
@@ -18,12 +16,19 @@ namespace RevitDBExplorer.WPF.Converters
 
             if (snoopableMember.ValueViewModel is DefaultPresenterVM presenter)
             {
-                if (presenter.ValueContainer is IHaveToolTip toolTip)
+                if (!string.IsNullOrEmpty(presenter.ValueContainer?.ToolTip))
                 {
-                    return toolTip.ToolTip;
+                    return presenter.ValueContainer.ToolTip;
                 }
+                return presenter.Label; 
             }
-            return snoopableMember.Label.Text;
+
+            if (snoopableMember.ValueViewModel is ErrorPresenterVM errorPresenter)
+            {
+                return errorPresenter.Label;
+            }
+
+            return null;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

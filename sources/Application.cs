@@ -2,6 +2,9 @@
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
 using RevitDBExplorer.Domain;
+using RevitDBExplorer.Domain.DataModel.MemberAccessors;
+using RevitDBExplorer.Domain.DataModel.Streams;
+using RevitDBExplorer.Domain.DataModel.ValueContainers.Base;
 using RevitDBExplorer.Domain.RevitDatabaseQuery;
 
 namespace RevitDBExplorer
@@ -23,7 +26,9 @@ namespace RevitDBExplorer
             panel.AddItem(pushButtonData);
 
             ExternalExecutor.CreateExternalEvent();
-            FactoryOfFactories.Init();
+            MemberAccessorFactory.Init();
+            ValueContainerFactory.Init();
+            MemberStreamerForTemplates.Init();
             RevitDocumentationReader.Init();
             RevitDatabaseQueryService.Init();
             EventMonitor.Register(application);

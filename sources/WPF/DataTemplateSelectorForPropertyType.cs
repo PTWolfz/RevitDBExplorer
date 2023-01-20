@@ -1,7 +1,7 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
 using RevitDBExplorer.Domain.DataModel;
-using RevitDBExplorer.UIComponents.List.ValuePresenters;
+using RevitDBExplorer.Domain.DataModel.ViewModels;
 
 // (c) Revit Database Explorer https://github.com/NeVeSpl/RevitDBExplorer/blob/main/license.md
 
@@ -19,11 +19,15 @@ namespace RevitDBExplorer.WPF
                 {
                     if (snoopableMember.ValueViewModel is DefaultPresenterVM { ValueContainer: not null } presenter)
                     {
-                        var key = new DataTemplateKey(presenter.ValueContainer?.GetType());
-                        var dataTemplate = (DataTemplate)element.TryFindResource(key);
-                        if (dataTemplate != null)
+                        var type = presenter.ValueContainer.TypeHandlerType;
+                        if (type != typeof(object))
                         {
-                            return dataTemplate;
+                            var key = new DataTemplateKey(type);
+                            var dataTemplate = (DataTemplate)element.TryFindResource(key);
+                            if (dataTemplate != null)
+                            {
+                                return dataTemplate;
+                            }
                         }
                     }
                     {
